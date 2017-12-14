@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop" xmlns:tx="http://www.springframework.org/schema/tx"
+	xsi:schemaLocation="http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-4.3.xsd
+		http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+		http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-4.3.xsd
+		http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-4.3.xsd">
+
+	<context:component-scan base-package="com.yihaitao">
+		<context:exclude-filter type="annotation"
+			expression="org.springframework.stereotype.Controller" />
+	</context:component-scan>
+
+	<context:property-placeholder location="classpath:dbconfig.properties" />
+	<!-- Spring的配置文件，这里主要配置和业务逻辑有关的 -->
+	<!--=================== 数据源，事务控制，xxx ================ -->
+	<!-- 
+	<bean id="pooledDataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+		<property name="jdbcUrl" value="${jdbc.jdbcUrl}"></property>
+		<property name="driverClass" value="${jdbc.driverClass}"></property>
+		<property name="user" value="${jdbc.user}"></property>
+		<property name="password" value="${jdbc.password}"></property>
+	</bean> -->
+
+	<!--================== 配置和MyBatis的整合=============== -->
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<!-- 指定mybatis全局配置文件的位置 -->
+		<property name="configLocation" value="classpath:mybatis-config.xml"></property>
+		<property name="dataSource" ref="dataSource"></property>
+		<!-- 指定mybatis，mapper文件的位置 -->
+		<property name="mapperLocations" value="classpath:mapper/*.xml"></property>
+	</bean>
+
+	<!-- 配置扫描器，将mybatis接口的实现加入到ioc容器中 -->
+	<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+		<!--扫描所有dao接口的实现，加入到ioc容器中 -->
+		<property name="basePackage" value="com.yihaitao.crud.dao"></property>
+	</bean>
+
+	<!-- 配置一个可以执行批量的sqlSession -->
+	<!-- <bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate">
+		<constructor-arg name="sqlSessionFactory" ref="sqlSessionFactory"></constructor-arg>
+		<constructor-arg name="executorType" value="BATCH"></constructor-arg>
+	</bean> -->
+
+	<!--事务控制的配置 -->
+	<!-- <bean id="transactionManager"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		控制住数据源
+		<property name="dataSource" ref="pooledDataSource"></property>
+	</bean> -->
+	
+	<!--开启基于注解的事务，使用xml配置形式的事务（必要主要的都是使用配置式） -->
+	<!-- <aop:config>
+		切入点表达式
+		<aop:pointcut expression="execution(* com.yihaitao.crud.service..*(..))"
+			id="txPoint" />
+		配置事务增强
+		<aop:advisor advice-ref="txAdvice" pointcut-ref="txPoint" />
+	</aop:config> -->
+
+	<!--配置事务增强，事务如何切入 -->
+	<!-- <tx:advice id="txAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			所有方法都是事务方法
+			<tx:method name="*" />
+			以get开始的所有方法
+			<tx:method name="get*" read-only="true" />
+			<tx:method name="find*" read-only="true" />
+		</tx:attributes>
+	</tx:advice> -->
+
+	<!-- Spring配置文件的核心点（数据源、与mybatis的整合，事务控制） -->
+	
+	<!-- 配置读写分离数据源 -->
+	<bean id="masterDataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+		<property name="jdbcUrl" value="${jdbc.master.url}"></property>
+		<property name="driverClass" value="${jdbc.master.driver}"></property>
+		<property name="user" value="${jdbc.master.username}"></property>
+		<property name="password" value="${jdbc.master.password}"></property>
+	</bean>
+	
+	<bean id="slave01DataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+		<property name="jdbcUrl" value="${jdbc.slave01.url}"></property>
+		<property name="driverClass" value="${jdbc.slave01.driver}"></property>
+		<property name="user" value="${jdbc.slave01.username}"></property>
+		<property name="password" value="${jdbc.slave01.password}"></property>
+	</bean>
+	
+	<!-- 定义数据源，使用自己实现的数据源 -->
+	<bean id="dataSource" class="com.yihaitao.crud.separate.DynamicDataSource">
+		<!-- 设置多个数据源 -->
+		<property name="targetDataSources">
+			<map key-type="java.lang.String">
+				<!-- 这个key需要和程序中的key一致 -->
+				<entry key="master" value-ref="masterDataSource"/>
+				<entry key="slave" value-ref="slave01DataSource"/>
+			</map>
+		</property>
+		<!-- 设置默认的数据源，这里默认走写库 -->
+		<property name="defaultTargetDataSource" ref="masterDataSource"/>
+	</bean>
+
+	<!-- 定义事务管理器 -->
+	<bean id="transactionManager"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		<property name="dataSource" ref="dataSource" />
+	</bean>
+	
+	<!-- 定义事务策略 -->
+	<tx:advice id="txAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			<!--定义查询方法都是只读的 -->
+			<tx:method name="query*" read-only="true" />
+			<tx:method name="find*" read-only="true" />
+			<tx:method name="get*" read-only="true" />
+
+			<!-- 主库执行操作，事务传播行为定义为默认行为 -->
+			<tx:method name="save*" propagation="REQUIRED" />
+			<tx:method name="update*" propagation="REQUIRED" />
+			<tx:method name="delete*" propagation="REQUIRED" />
+
+			<!--其他方法使用默认事务策略 -->
+			<tx:method name="*" />
+		</tx:attributes>
+	</tx:advice>
+	
+	<!-- 定义AOP切面处理器 -->
+	<bean id="dataSourceAspect" class="com.yihaitao.crud.separate.DataSourceAspect" />
+
+	<aop:config>
+		<!-- 定义切面，所有的service的所有方法 -->
+		<aop:pointcut id="txPointcut" expression="execution(* com.yihaitao.crud.service..*(..))"/>
+		<!-- 应用事务策略到Service切面 -->
+		<aop:advisor advice-ref="txAdvice" pointcut-ref="txPointcut"/>
+		
+		<!-- 将切面应用到自定义的切面处理器上，-9999保证该切面优先级最高执行 -->
+		<aop:aspect ref="dataSourceAspect" order="-9999">
+			<aop:before method="before" pointcut-ref="txPointcut" />
+		</aop:aspect>
+	</aop:config>
+</beans>
