@@ -1,6 +1,0 @@
-Git is a distributed version control system.
-Git is free software.
-
-My name is git too!
-BBB
-AAA
